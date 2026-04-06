@@ -11,6 +11,11 @@ import SwiftData
 struct ListsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \UserList.title) private var lists: [UserList]
+
+    @State private var isImportPresented = false
+    @State private var importText = ""
+    @State private var isExportPresented = false
+    @State private var exportText = ""
     @State private var errorMessage: String?
 
     var body: some View {
@@ -30,8 +35,60 @@ struct ListsView: View {
                 }
             }
             .navigationTitle("Бэклог")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu("JSON") {
+                        Button("Загрузить JSON") {
+                            importText = ""
+                            isImportPresented = true
+                        }
+                        Button("Выгрузить JSON") {
+                            exportLists()
+                        }
+                    }
+                }
+            }
             .onAppear {
                 ensureDefaultLists()
+            }
+            .sheet(isPresented: $isImportPresented) {
+                NavigationStack {
+                    Form {
+                        Section("Вставьте JSON текстом") {
+                            TextEditor(text: $importText)
+                                .frame(minHeight: 220)
+                        }
+                    }
+                    .navigationTitle("Загрузить JSON")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Закрыть") { isImportPresented = false }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Импортировать") {
+                                importLists()
+                            }
+                            .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $isExportPresented) {
+                NavigationStack {
+                    Form {
+                        Section("JSON списков задач") {
+                            TextEditor(text: $exportText)
+                                .frame(minHeight: 260)
+                                .font(.system(.footnote, design: .monospaced))
+                        }
+                    }
+                    .navigationTitle("Выгрузить JSON")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Закрыть") { isExportPresented = false }
+                        }
+                    }
+                }
             }
             .alert("Ошибка", isPresented: Binding(
                 get: { errorMessage != nil },
@@ -63,6 +120,25 @@ struct ListsView: View {
             }
         } catch {
             errorMessage = "Не удалось создать категории: \(error.localizedDescription)"
+        }
+    }
+
+    private func importLists() {
+        do {
+            try BacklogJSONCodec.replaceLists(from: importText, modelContext: modelContext)
+            ensureDefaultLists()
+            isImportPresented = false
+        } catch {
+            errorMessage = "Ошибка импорта JSON: \(error.localizedDescription)"
+        }
+    }
+
+    private func exportLists() {
+        do {
+            exportText = try BacklogJSONCodec.exportJSONString(from: lists)
+            isExportPresented = true
+        } catch {
+            errorMessage = "Ошибка выгрузки JSON: \(error.localizedDescription)"
         }
     }
 }

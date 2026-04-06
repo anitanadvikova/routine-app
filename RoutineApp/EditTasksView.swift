@@ -20,6 +20,11 @@ struct EditTasksView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Text(weekRangeText)
+                        .foregroundStyle(.secondary)
+                }
+
                 if quickTasks.isEmpty {
                     Text("Пока нет задач")
                         .foregroundStyle(.secondary)
@@ -141,6 +146,18 @@ struct EditTasksView: View {
         } catch {
             errorMessage = "Не удалось удалить задачу: \(error.localizedDescription)"
         }
+    }
+
+    private var weekRangeText: String {
+        let calendar = Calendar.current
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else {
+            return Date.now.formatted(.dateTime.day().month().year())
+        }
+
+        let endDate = calendar.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
+        let startText = interval.start.formatted(.dateTime.day().month().year())
+        let endText = endDate.formatted(.dateTime.day().month().year())
+        return "\(startText) - \(endText)"
     }
 
 }
