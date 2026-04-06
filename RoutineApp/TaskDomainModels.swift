@@ -63,6 +63,7 @@ final class UserListItem {
     var title: String
     var text: String
     var isCompleted: Bool
+    var createdAt: Date
     var list: UserList?
 
     init(
@@ -70,12 +71,14 @@ final class UserListItem {
         title: String = "",
         text: String = "",
         isCompleted: Bool = false,
+        createdAt: Date = .now,
         list: UserList? = nil
     ) {
         self.id = id
         self.title = title
         self.text = text
         self.isCompleted = isCompleted
+        self.createdAt = createdAt
         self.list = list
     }
 
@@ -84,6 +87,7 @@ final class UserListItem {
             title: text,
             text: text,
             isCompleted: isCompleted,
+            createdAt: .now,
             list: list
         )
     }
