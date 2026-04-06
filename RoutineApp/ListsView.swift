@@ -179,21 +179,17 @@ private struct UserListDetailView: View {
                             Text(item.text)
                                 .strikethrough(item.isCompleted, color: .secondary)
                                 .foregroundStyle(item.isCompleted ? .secondary : .primary)
-
-                            Spacer()
-
-                            Button(role: .destructive) {
-                                deleteItem(item)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.red)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Удалить пункт")
                         }
                         .contentShape(Rectangle())
                         .onTapGesture {
                             toggleItem(item)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                deleteItem(item)
+                            } label: {
+                                Label("Удалить", systemImage: "trash")
+                            }
                         }
                     }
                 }

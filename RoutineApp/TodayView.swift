@@ -12,21 +12,32 @@ struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \TaskRule.title) private var rules: [TaskRule]
     @Query private var completions: [TaskCompletion]
+    private let hiddenRuleIDsDefaultsKeyPrefix = "TodayView.hiddenRuleIDs"
+    @State private var selectedDate = Calendar.current.startOfDay(for: Date())
     @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    Text(Date.now, format: .dateTime.weekday(.wide).day().month().year())
+                    Picker("Дата", selection: $selectedDate) {
+                        ForEach(currentWeekDates, id: \.self) { date in
+                            Text(weekdayDateText(for: date))
+                                .tag(date)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Text(selectedDate, format: .dateTime.weekday(.wide).day().month().year())
                         .foregroundStyle(.secondary)
                 }
 
                 Section("Рутинные задачи на сегодня") {
-                    let todayRules = rulesForToday(from: rules)
+                    let todayRules = rulesForSelectedDate(from: rules)
                     if todayRules.isEmpty {
                         Text("На сегодня нет рутинных задач")
                             .foregroundStyle(.secondary)
+                            .listRowSeparator(.hidden)
                     } else {
                         ForEach(todayRules, id: \.id) { rule in
                             HStack(spacing: 10) {
@@ -50,20 +61,23 @@ struct TodayView: View {
                                     }
                                 }
 
-                                Spacer()
-
-                                Button(role: .destructive) {
-                                    deleteRule(rule)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.red)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Удалить рутинную задачу")
                             }
                             .contentShape(Rectangle())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(rule.markerColor.pastelBackgroundColor)
+                                    .padding(.vertical, 4)
+                            )
                             .onTapGesture {
                                 toggleCompletion(for: rule)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    hideRule(rule)
+                                } label: {
+                                    Label("Скрыть", systemImage: "trash")
+                                }
                             }
                         }
                     }
@@ -89,18 +103,19 @@ struct TodayView: View {
         }
     }
 
-    private func rulesForToday(from rules: [TaskRule]) -> [TaskRule] {
+    private func rulesForSelectedDate(from rules: [TaskRule]) -> [TaskRule] {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let weekday = calendar.component(.weekday, from: today)
+        let targetDate = calendar.startOfDay(for: selectedDate)
+        let weekday = calendar.component(.weekday, from: targetDate)
+        let hiddenRuleIDs = hiddenRuleIDs(for: targetDate)
         let completedTaskIDsInPast = Set(
             completions
-                .filter { $0.isCompleted && Calendar.current.startOfDay(for: $0.date) < today }
+                .filter { $0.isCompleted && Calendar.current.startOfDay(for: $0.date) < targetDate }
                 .map(\.taskId)
         )
         let completedTaskIDsToday = Set(
             completions
-                .filter { $0.isCompleted && Calendar.current.isDate($0.date, inSameDayAs: today) }
+                .filter { $0.isCompleted && Calendar.current.isDate($0.date, inSameDayAs: targetDate) }
                 .map(\.taskId)
         )
 
@@ -116,13 +131,14 @@ struct TodayView: View {
                         return false
                     }
                     let start = calendar.startOfDay(for: startDate)
-                    guard start <= today else { return false }
-                    let days = calendar.dateComponents([.day], from: start, to: today).day ?? 0
+                    guard start <= targetDate else { return false }
+                    let days = calendar.dateComponents([.day], from: start, to: targetDate).day ?? 0
                     return days % interval == 0
                 case .floating:
                     return !completedTaskIDsInPast.contains(rule.id) || completedTaskIDsToday.contains(rule.id)
                 }
             }
+            .filter { !hiddenRuleIDs.contains($0.id.uuidString) }
             .sorted { lhs, rhs in
                 sortKey(for: lhs) < sortKey(for: rhs)
             }
@@ -144,13 +160,13 @@ struct TodayView: View {
 
     private func isCompletedToday(_ rule: TaskRule) -> Bool {
         completions.contains {
-            $0.taskId == rule.id && $0.isCompleted && Calendar.current.isDateInToday($0.date)
+            $0.taskId == rule.id && $0.isCompleted && Calendar.current.isDate($0.date, inSameDayAs: selectedDate)
         }
     }
 
     private func toggleCompletion(for rule: TaskRule) {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+        let today = calendar.startOfDay(for: selectedDate)
 
         if let existing = completions.first(where: { $0.taskId == rule.id && calendar.isDate($0.date, inSameDayAs: today) }) {
             existing.isCompleted.toggle()
@@ -167,22 +183,62 @@ struct TodayView: View {
 
         do {
             try modelContext.save()
+            unhideRule(rule, on: today)
         } catch {
             errorMessage = "Не удалось обновить выполнение: \(error.localizedDescription)"
         }
     }
 
-    private func deleteRule(_ rule: TaskRule) {
-        do {
-            let related = completions.filter { $0.taskId == rule.id }
-            for completion in related {
-                modelContext.delete(completion)
-            }
-            modelContext.delete(rule)
-            try modelContext.save()
-        } catch {
-            errorMessage = "Не удалось удалить рутинную задачу: \(error.localizedDescription)"
+    private func hideRule(_ rule: TaskRule) {
+        let targetDate = Calendar.current.startOfDay(for: selectedDate)
+        var hiddenRuleIDs = hiddenRuleIDs(for: targetDate)
+        hiddenRuleIDs.insert(rule.id.uuidString)
+        saveHiddenRuleIDs(hiddenRuleIDs, for: targetDate)
+    }
+
+    private func hiddenRuleIDs(for date: Date) -> Set<String> {
+        let storedValues = UserDefaults.standard.stringArray(forKey: hiddenRuleIDsStorageKey(for: date)) ?? []
+        return Set(storedValues)
+    }
+
+    private func unhideRule(_ rule: TaskRule, on date: Date) {
+        var hiddenRuleIDs = hiddenRuleIDs(for: date)
+        guard hiddenRuleIDs.remove(rule.id.uuidString) != nil else {
+            return
         }
+
+        saveHiddenRuleIDs(hiddenRuleIDs, for: date)
+    }
+
+    private func saveHiddenRuleIDs(_ hiddenRuleIDs: Set<String>, for date: Date) {
+        let storageKey = hiddenRuleIDsStorageKey(for: date)
+        if hiddenRuleIDs.isEmpty {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+        } else {
+            UserDefaults.standard.set(Array(hiddenRuleIDs).sorted(), forKey: storageKey)
+        }
+    }
+
+    private func hiddenRuleIDsStorageKey(for date: Date) -> String {
+        let dateText = date.formatted(.iso8601.year().month().day())
+        return "\(hiddenRuleIDsDefaultsKeyPrefix).\(dateText)"
+    }
+
+    private var currentWeekDates: [Date] {
+        let calendar = Calendar.current
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else {
+            return [calendar.startOfDay(for: Date())]
+        }
+
+        return (0..<7).compactMap { offset in
+            calendar.date(byAdding: .day, value: offset, to: interval.start).map {
+                calendar.startOfDay(for: $0)
+            }
+        }
+    }
+
+    private func weekdayDateText(for date: Date) -> String {
+        date.formatted(.dateTime.weekday(.wide).day().month())
     }
 }
 

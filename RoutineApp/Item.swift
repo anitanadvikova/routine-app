@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import SwiftUI
 
 enum TaskScheduleType: String, Codable, CaseIterable {
     case weekly
@@ -26,6 +27,18 @@ enum Weekday: Int, Codable, CaseIterable, Identifiable {
     var id: Int { rawValue }
 }
 
+enum TaskMarkerColor: String, Codable, CaseIterable, Identifiable {
+    case white
+    case red
+    case orange
+    case yellow
+    case green
+    case blue
+    case pink
+
+    var id: String { rawValue }
+}
+
 @Model
 final class TaskRule {
     var id: UUID
@@ -37,6 +50,7 @@ final class TaskRule {
     var startTimeHour: Int?
     var startTimeMinute: Int?
     var isImportant: Bool
+    var markerColorRaw: String?
     var notes: String?
     var isActive: Bool
 
@@ -50,6 +64,7 @@ final class TaskRule {
         startTimeHour: Int? = nil,
         startTimeMinute: Int? = nil,
         isImportant: Bool = false,
+        markerColor: TaskMarkerColor = .white,
         notes: String? = nil,
         isActive: Bool = true
     ) {
@@ -62,6 +77,7 @@ final class TaskRule {
         self.startTimeHour = startTimeHour
         self.startTimeMinute = startTimeMinute
         self.isImportant = isImportant
+        self.markerColorRaw = markerColor.rawValue
         self.notes = notes
         self.isActive = isActive
     }
@@ -76,6 +92,56 @@ extension TaskRule {
     var weeklyDays: [Weekday] {
         get { weeklyDaysRaw.compactMap(Weekday.init(rawValue:)).sorted { $0.rawValue < $1.rawValue } }
         set { weeklyDaysRaw = newValue.map(\.rawValue) }
+    }
+
+    var markerColor: TaskMarkerColor {
+        get { TaskMarkerColor(rawValue: markerColorRaw ?? "") ?? .white }
+        set { markerColorRaw = newValue.rawValue }
+    }
+}
+
+extension TaskMarkerColor {
+    var title: String {
+        switch self {
+        case .white: return "Белый"
+        case .red: return "Красный"
+        case .orange: return "Оранжевый"
+        case .yellow: return "Желтый"
+        case .green: return "Зеленый"
+        case .blue: return "Синий"
+        case .pink: return "Розовый"
+        }
+    }
+
+    var swiftUIColor: Color {
+        switch self {
+        case .white: return .white
+        case .red: return .red
+        case .orange: return .orange
+        case .yellow: return .yellow
+        case .green: return .green
+        case .blue: return .blue
+        case .pink: return .pink
+        }
+    }
+
+    var pastelBackgroundColor: Color {
+        switch self {
+        case .white:
+            return Color.white
+        case .red:
+            return Color(red: 0.98, green: 0.87, blue: 0.87)
+        case .orange:
+            return Color(red: 0.99, green: 0.91, blue: 0.82)
+        case .yellow:
+            return Color(red: 0.99, green: 0.96, blue: 0.82)
+        case .green:
+            return Color(red: 0.87, green: 0.95, blue: 0.88)
+        case .blue:
+            return Color(red: 0.86, green: 0.91, blue: 0.98)
+        case .pink:
+            return Color(red: 0.97, green: 0.87, blue: 0.93)
+        }
     }
 }
 

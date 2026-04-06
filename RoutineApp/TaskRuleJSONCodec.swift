@@ -38,6 +38,7 @@ enum TaskRuleJSONCodecError: LocalizedError {
 }
 
 struct TaskRuleJSONCodec {
+    @MainActor
     static func exportJSONString(from rules: [TaskRule]) throws -> String {
         let payload = RoutineRulesPayload(
             version: 1,
@@ -82,9 +83,11 @@ struct RoutineTaskDTO: Codable {
     let startDate: String?
     let startTime: String?
     let isImportant: Bool
+    let markerColor: String?
     let notes: String?
     let isActive: Bool
 
+    @MainActor
     init(rule: TaskRule) {
         self.id = rule.id
         self.title = rule.title
@@ -94,6 +97,7 @@ struct RoutineTaskDTO: Codable {
         self.startDate = Self.dateFormatter.stringOrNil(from: rule.startDate)
         self.startTime = Self.timeString(hour: rule.startTimeHour, minute: rule.startTimeMinute)
         self.isImportant = rule.isImportant
+        self.markerColor = rule.markerColor.rawValue
         self.notes = rule.notes
         self.isActive = rule.isActive
     }
@@ -109,6 +113,7 @@ struct RoutineTaskDTO: Codable {
             }
             return day
         }
+        let resolvedMarkerColor = TaskMarkerColor(rawValue: markerColor ?? "") ?? .white
 
         let resolvedStartDate: Date?
         if let startDate {
@@ -144,6 +149,7 @@ struct RoutineTaskDTO: Codable {
             startTimeHour: hour,
             startTimeMinute: minute,
             isImportant: isImportant,
+            markerColor: resolvedMarkerColor,
             notes: notes,
             isActive: isActive
         )
@@ -215,4 +221,3 @@ private extension Weekday {
 //
 //  Created by Анита Надвикова on 06.04.2026.
 //
-

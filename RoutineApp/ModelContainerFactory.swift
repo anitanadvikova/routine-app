@@ -12,6 +12,12 @@ enum AppGroupConfig {
     // Replace with your own Team ID based identifier.
     static let identifier = "group.com.example.routineapp"
 
+    static var todayWidgetSnapshotURL: URL? {
+        FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: identifier)?
+            .appendingPathComponent("TodayWidgetSnapshot.json")
+    }
+
     static var sharedStoreURL: URL? {
         FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: identifier)?

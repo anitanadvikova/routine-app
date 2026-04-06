@@ -12,7 +12,7 @@ struct RoutineRulesView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \TaskRule.title) private var rules: [TaskRule]
 
-    @State private var isEditorPresented = false
+    @State private var isCreateEditorPresented = false
     @State private var editingRule: TaskRule?
 
     @State private var isImportPresented = false
@@ -32,7 +32,6 @@ struct RoutineRulesView: View {
                 ForEach(rules, id: \.id) { rule in
                     Button {
                         editingRule = rule
-                        isEditorPresented = true
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(rule.title)
@@ -64,15 +63,20 @@ struct RoutineRulesView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     editingRule = nil
-                    isEditorPresented = true
+                    isCreateEditorPresented = true
                 } label: {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("Добавить правило")
             }
         }
-        .sheet(isPresented: $isEditorPresented) {
-            RoutineRuleEditorSheet(rule: editingRule) { input in
+        .sheet(item: $editingRule) { rule in
+            RoutineRuleEditorSheet(rule: rule) { input in
+                saveRule(input)
+            }
+        }
+        .sheet(isPresented: $isCreateEditorPresented) {
+            RoutineRuleEditorSheet(rule: nil) { input in
                 saveRule(input)
             }
         }
@@ -143,12 +147,14 @@ struct RoutineRulesView: View {
             targetRule.startTimeHour = input.startTimeEnabled ? input.startTimeHour : nil
             targetRule.startTimeMinute = input.startTimeEnabled ? input.startTimeMinute : nil
             targetRule.isImportant = input.isImportant
+            targetRule.markerColor = input.markerColor
             targetRule.notes = input.notes.isEmpty ? nil : input.notes
             targetRule.isActive = input.isActive
 
             try validateRule(targetRule)
             try modelContext.save()
-            isEditorPresented = false
+            editingRule = nil
+            isCreateEditorPresented = false
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -238,6 +244,17 @@ private struct RoutineRuleEditorSheet: View {
                             Text(type.rawValue).tag(type)
                         }
                     }
+                    Picker("Цвет пункта", selection: $input.markerColor) {
+                        ForEach(TaskMarkerColor.allCases) { color in
+                            Label {
+                                Text(color.title)
+                            } icon: {
+                                Circle()
+                                    .fill(color.swiftUIColor)
+                            }
+                            .tag(color)
+                        }
+                    }
                     Toggle("Важно", isOn: $input.isImportant)
                     Toggle("Активна", isOn: $input.isActive)
                 }
@@ -311,6 +328,7 @@ private struct RoutineRuleInput {
     var startTimeEnabled: Bool
     var startTimeDate: Date
     var isImportant: Bool
+    var markerColor: TaskMarkerColor
     var notes: String
     var isActive: Bool
 
@@ -341,6 +359,7 @@ private struct RoutineRuleInput {
             minute: rule?.startTimeMinute
         ) ?? now
         self.isImportant = rule?.isImportant ?? false
+        self.markerColor = rule?.markerColor ?? .white
         self.notes = rule?.notes ?? ""
         self.isActive = rule?.isActive ?? true
     }

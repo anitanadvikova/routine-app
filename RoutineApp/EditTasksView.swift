@@ -34,29 +34,25 @@ struct EditTasksView: View {
                             Image(systemName: task.isChecked ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(task.isChecked ? .green : .secondary)
                             if task.isImportant {
-                                                            Circle()
-                                                                .fill(.orange)
-                                                                .frame(width: 8, height: 8)
-                                                        }
+                                Circle()
+                                    .fill(.orange)
+                                    .frame(width: 8, height: 8)
+                            }
 
                             Text(task.title)
                                 .strikethrough(task.isChecked, color: .secondary)
                                 .foregroundStyle(task.isChecked ? .secondary : .primary)
-
-                            Spacer()
-
-                            Button(role: .destructive) {
-                                deleteTask(task)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.red)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Удалить задачу")
                         }
                         .contentShape(Rectangle())
                         .onLongPressGesture {
                             toggleChecked(task)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                deleteTask(task)
+                            } label: {
+                                Label("Удалить", systemImage: "trash")
+                            }
                         }
                     }
                 }
