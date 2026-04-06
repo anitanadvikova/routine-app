@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct ListsView: View {
     @Environment(\.modelContext) private var modelContext
@@ -16,6 +17,7 @@ struct ListsView: View {
     @State private var importText = ""
     @State private var isExportPresented = false
     @State private var exportText = ""
+    @State private var isCopyToastPresented = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -74,21 +76,38 @@ struct ListsView: View {
                 }
             }
             .sheet(isPresented: $isExportPresented) {
-                NavigationStack {
-                    Form {
-                        Section("JSON списков задач") {
-                            TextEditor(text: $exportText)
-                                .frame(minHeight: 260)
-                                .font(.system(.footnote, design: .monospaced))
+                ZStack {
+                    NavigationStack {
+                        Form {
+                            Section("JSON списков задач") {
+                                TextEditor(text: $exportText)
+                                    .frame(minHeight: 260)
+                                    .font(.system(.footnote, design: .monospaced))
+                            }
+                        }
+                        .navigationTitle("Выгрузить JSON")
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Закрыть") { isExportPresented = false }
+                            }
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Скопировать") {
+                                    copyExportJSON()
+                                }
+                            }
                         }
                     }
-                    .navigationTitle("Выгрузить JSON")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Закрыть") { isExportPresented = false }
-                        }
+
+                    if isCopyToastPresented {
+                        Text("Скопировано")
+                            .font(.footnote.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.thinMaterial, in: Capsule())
+                            .transition(.scale.combined(with: .opacity))
                     }
                 }
+                .animation(.easeInOut(duration: 0.2), value: isCopyToastPresented)
             }
             .alert("Ошибка", isPresented: Binding(
                 get: { errorMessage != nil },
@@ -139,6 +158,17 @@ struct ListsView: View {
             isExportPresented = true
         } catch {
             errorMessage = "Ошибка выгрузки JSON: \(error.localizedDescription)"
+        }
+    }
+
+    private func copyExportJSON() {
+        UIPasteboard.general.string = exportText
+        isCopyToastPresented = true
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            await MainActor.run {
+                isCopyToastPresented = false
+            }
         }
     }
 }

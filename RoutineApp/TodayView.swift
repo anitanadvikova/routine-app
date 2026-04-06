@@ -40,9 +40,12 @@ struct TodayView: View {
                             .listRowSeparator(.hidden)
                     } else {
                         ForEach(todayRules, id: \.id) { rule in
+                            let completionState = isCompletedToday(rule)
+                            let ruleTimeText = timeText(for: rule)
+
                             HStack(spacing: 10) {
-                                Image(systemName: isCompletedToday(rule) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(isCompletedToday(rule) ? .green : .secondary)
+                                Image(systemName: completionState ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(completionState ? .green : .secondary)
 
                                 if rule.isImportant {
                                     Circle()
@@ -52,13 +55,12 @@ struct TodayView: View {
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(rule.title)
-                                        .strikethrough(isCompletedToday(rule), color: .secondary)
-                                        .foregroundStyle(isCompletedToday(rule) ? .secondary : .primary)
-                                    if let time = timeText(for: rule) {
-                                        Text(time)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
+                                        .strikethrough(completionState, color: .secondary)
+                                        .foregroundStyle(completionState ? .secondary : .primary)
+                                    Text(ruleTimeText ?? "00:00")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .opacity(ruleTimeText == nil ? 0 : 1)
                                 }
 
                             }
