@@ -10,7 +10,7 @@ import SwiftData
 
 struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \TaskRule.title) private var rules: [TaskRule]
+    @Query private var rules: [TaskRule]
     @Query private var completions: [TaskCompletion]
     private let hiddenRuleIDsDefaultsKeyPrefix = "TodayView.hiddenRuleIDs"
     @State private var selectedDate = Calendar.current.startOfDay(for: Date())
@@ -20,16 +20,20 @@ struct TodayView: View {
         NavigationStack {
             List {
                 Section {
-                    Picker("Дата", selection: $selectedDate) {
+                    Picker("День недели", selection: $selectedDate) {
                         ForEach(currentWeekDates, id: \.self) { date in
-                            Text(weekdayDateText(for: date))
+                            Text(weekdayText(for: date))
                                 .tag(date)
                         }
                     }
                     .pickerStyle(.menu)
 
-                    Text(selectedDate, format: .dateTime.weekday(.wide).day().month().year())
-                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text("Дата")
+                        Spacer()
+                        Text(selectedDate, format: .dateTime.day().month().year())
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Рутинные задачи на сегодня") {
@@ -41,11 +45,12 @@ struct TodayView: View {
                     } else {
                         ForEach(todayRules, id: \.id) { rule in
                             let completionState = isCompletedToday(rule)
-                            let ruleTimeText = timeText(for: rule)
+                            let comment = normalizedComment(rule.notes)
 
                             HStack(spacing: 10) {
                                 Image(systemName: completionState ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(completionState ? .green : .secondary)
+                                    .frame(width: 22, height: 22)
 
                                 if rule.isImportant {
                                     Circle()
@@ -57,11 +62,15 @@ struct TodayView: View {
                                     Text(rule.title)
                                         .strikethrough(completionState, color: .secondary)
                                         .foregroundStyle(completionState ? .secondary : .primary)
-                                    Text(ruleTimeText ?? "00:00")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .opacity(ruleTimeText == nil ? 0 : 1)
+                                    if let comment {
+                                        Text(comment)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(minHeight: 38, alignment: comment == nil ? .center : .top)
 
                             }
                             .contentShape(Rectangle())
@@ -94,6 +103,9 @@ struct TodayView: View {
                 }
             }
             .navigationTitle("Сегодня")
+            .safeAreaInset(edge: .top) {
+                Color.clear.frame(height: 8)
+            }
             .alert("Ошибка", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
@@ -142,22 +154,11 @@ struct TodayView: View {
             }
             .filter { !hiddenRuleIDs.contains($0.id.uuidString) }
             .sorted { lhs, rhs in
-                sortKey(for: lhs) < sortKey(for: rhs)
+                if lhs.sortOrder == rhs.sortOrder {
+                    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
+                return lhs.sortOrder < rhs.sortOrder
             }
-    }
-
-    private func sortKey(for rule: TaskRule) -> (Int, Int, Int, String) {
-        if let hour = rule.startTimeHour, let minute = rule.startTimeMinute {
-            return (0, hour, minute, rule.title.lowercased())
-        }
-        return (1, 0, 0, rule.title.lowercased())
-    }
-
-    private func timeText(for rule: TaskRule) -> String? {
-        guard let hour = rule.startTimeHour, let minute = rule.startTimeMinute else {
-            return nil
-        }
-        return String(format: "%02d:%02d", hour, minute)
     }
 
     private func isCompletedToday(_ rule: TaskRule) -> Bool {
@@ -239,8 +240,17 @@ struct TodayView: View {
         }
     }
 
-    private func weekdayDateText(for date: Date) -> String {
-        date.formatted(.dateTime.weekday(.wide).day().month())
+    private func weekdayText(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "EEEE"
+        return formatter.string(from: date).capitalized(with: formatter.locale)
+    }
+
+    private func normalizedComment(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
 }
 

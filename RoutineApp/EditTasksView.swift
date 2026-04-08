@@ -13,7 +13,9 @@ struct EditTasksView: View {
     @Query(sort: \QuickTask.createdAt, order: .forward) private var quickTasks: [QuickTask]
 
     @State private var isCreateTaskSheetPresented = false
+    @State private var editingTask: QuickTask?
     @State private var newTaskTitle = ""
+    @State private var newTaskComment = ""
     @State private var newTaskIsImportant = false
     @State private var errorMessage: String?
 
@@ -30,22 +32,37 @@ struct EditTasksView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(quickTasks, id: \.id) { task in
+                        let comment = normalizedComment(task.comment)
                         HStack(spacing: 12) {
                             Image(systemName: task.isChecked ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(task.isChecked ? .green : .secondary)
+                                .frame(width: 22, height: 22)
                             if task.isImportant {
                                 Circle()
                                     .fill(.orange)
                                     .frame(width: 8, height: 8)
                             }
 
-                            Text(task.title)
-                                .strikethrough(task.isChecked, color: .secondary)
-                                .foregroundStyle(task.isChecked ? .secondary : .primary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(task.title)
+                                    .strikethrough(task.isChecked, color: .secondary)
+                                    .foregroundStyle(task.isChecked ? .secondary : .primary)
+                                if let comment {
+                                    Text(comment)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(minHeight: 38, alignment: comment == nil ? .center : .top)
                         }
                         .contentShape(Rectangle())
-                        .onLongPressGesture {
+                        .onTapGesture {
                             toggleChecked(task)
+                        }
+                        .onLongPressGesture {
+                            startEditing(task)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -58,10 +75,14 @@ struct EditTasksView: View {
                 }
             }
             .navigationTitle("Неделя")
+            .safeAreaInset(edge: .top) {
+                Color.clear.frame(height: 8)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         newTaskTitle = ""
+                        newTaskComment = ""
                         newTaskIsImportant = false
                         isCreateTaskSheetPresented = true
                     } label: {
@@ -76,15 +97,20 @@ struct EditTasksView: View {
                         Section("Название") {
                             TextField("Например: Выпить воду", text: $newTaskTitle)
                         }
+                        Section("Комментарий") {
+                            TextField("Опционально", text: $newTaskComment, axis: .vertical)
+                                .lineLimit(2...4)
+                        }
                         Section("Опции") {
                             Toggle("Важная задача", isOn: $newTaskIsImportant)
                                                 }
                     }
-                    .navigationTitle("Добавить")
+                    .navigationTitle(editingTask == nil ? "Добавить" : "Редактировать")
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Закрыть") {
                                 isCreateTaskSheetPresented = false
+                                editingTask = nil
                             }
                         }
                         ToolbarItem(placement: .confirmationAction) {
@@ -111,16 +137,23 @@ struct EditTasksView: View {
         let trimmedTitle = newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
 
-        let task = QuickTask(
+        do {
+            if let editingTask {
+                editingTask.title = trimmedTitle
+                editingTask.comment = normalizedComment(newTaskComment)
+                editingTask.isImportant = newTaskIsImportant
+            } else {
+                let task = QuickTask(
                     title: trimmedTitle,
+                    comment: normalizedComment(newTaskComment),
                     isChecked: false,
                     isImportant: newTaskIsImportant
                 )
-
-        do {
-            modelContext.insert(task)
+                modelContext.insert(task)
+            }
             try modelContext.save()
             isCreateTaskSheetPresented = false
+            editingTask = nil
         } catch {
             errorMessage = "Не удалось сохранить задачу: \(error.localizedDescription)"
         }
@@ -154,6 +187,20 @@ struct EditTasksView: View {
         let startText = interval.start.formatted(.dateTime.day().month().year())
         let endText = endDate.formatted(.dateTime.day().month().year())
         return "\(startText) - \(endText)"
+    }
+
+    private func startEditing(_ task: QuickTask) {
+        editingTask = task
+        newTaskTitle = task.title
+        newTaskComment = task.comment ?? ""
+        newTaskIsImportant = task.isImportant
+        isCreateTaskSheetPresented = true
+    }
+
+    private func normalizedComment(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
 
 }

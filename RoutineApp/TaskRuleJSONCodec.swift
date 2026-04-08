@@ -11,7 +11,6 @@ import SwiftData
 enum TaskRuleJSONCodecError: LocalizedError {
     case invalidScheduleType(String)
     case invalidWeekday(String)
-    case invalidTimeFormat(String)
     case invalidDateFormat(String)
     case invalidWeeklyDays
     case invalidIntervalDays
@@ -23,8 +22,6 @@ enum TaskRuleJSONCodecError: LocalizedError {
             return "Неизвестный scheduleType: \(value)"
         case .invalidWeekday(let value):
             return "Неизвестный день недели: \(value)"
-        case .invalidTimeFormat(let value):
-            return "Неверный формат времени: \(value). Нужен HH:mm"
         case .invalidDateFormat(let value):
             return "Неверный формат даты: \(value). Нужен yyyy-MM-dd"
         case .invalidWeeklyDays:
@@ -60,8 +57,8 @@ struct TaskRuleJSONCodec {
             modelContext.delete(rule)
         }
 
-        for dto in payload.tasks {
-            let rule = try dto.toTaskRule()
+        for (index, dto) in payload.tasks.enumerated() {
+            let rule = try dto.toTaskRule(defaultSortOrder: index)
             modelContext.insert(rule)
         }
 
@@ -76,12 +73,12 @@ struct RoutineRulesPayload: Codable {
 
 struct RoutineTaskDTO: Codable {
     let id: UUID
+    let sortOrder: Int?
     let title: String
     let scheduleType: String
     let weeklyDays: [String]
     let intervalDays: Int?
     let startDate: String?
-    let startTime: String?
     let isImportant: Bool
     let markerColor: String?
     let notes: String?
@@ -90,19 +87,19 @@ struct RoutineTaskDTO: Codable {
     @MainActor
     init(rule: TaskRule) {
         self.id = rule.id
+        self.sortOrder = rule.sortOrder
         self.title = rule.title
         self.scheduleType = rule.scheduleType.rawValue
         self.weeklyDays = rule.weeklyDays.map(\.jsonKey)
         self.intervalDays = rule.intervalDays
         self.startDate = Self.dateFormatter.stringOrNil(from: rule.startDate)
-        self.startTime = Self.timeString(hour: rule.startTimeHour, minute: rule.startTimeMinute)
         self.isImportant = rule.isImportant
         self.markerColor = rule.markerColor.rawValue
         self.notes = rule.notes
         self.isActive = rule.isActive
     }
 
-    func toTaskRule() throws -> TaskRule {
+    func toTaskRule(defaultSortOrder: Int) throws -> TaskRule {
         guard let resolvedSchedule = TaskScheduleType(rawValue: scheduleType) else {
             throw TaskRuleJSONCodecError.invalidScheduleType(scheduleType)
         }
@@ -125,8 +122,6 @@ struct RoutineTaskDTO: Codable {
             resolvedStartDate = nil
         }
 
-        let (hour, minute) = try Self.parseTime(startTime)
-
         if resolvedSchedule == .weekly, resolvedWeekly.isEmpty {
             throw TaskRuleJSONCodecError.invalidWeeklyDays
         }
@@ -141,36 +136,17 @@ struct RoutineTaskDTO: Codable {
 
         return TaskRule(
             id: id,
+            sortOrder: sortOrder ?? defaultSortOrder,
             title: title,
             scheduleType: resolvedSchedule,
             weeklyDays: resolvedWeekly,
             intervalDays: intervalDays,
             startDate: resolvedStartDate,
-            startTimeHour: hour,
-            startTimeMinute: minute,
             isImportant: isImportant,
             markerColor: resolvedMarkerColor,
             notes: notes,
             isActive: isActive
         )
-    }
-
-    private static func parseTime(_ value: String?) throws -> (Int?, Int?) {
-        guard let value, !value.isEmpty else { return (nil, nil) }
-        let parts = value.split(separator: ":")
-        guard parts.count == 2,
-              let hour = Int(parts[0]),
-              let minute = Int(parts[1]),
-              (0...23).contains(hour),
-              (0...59).contains(minute) else {
-            throw TaskRuleJSONCodecError.invalidTimeFormat(value)
-        }
-        return (hour, minute)
-    }
-
-    private static func timeString(hour: Int?, minute: Int?) -> String? {
-        guard let hour, let minute else { return nil }
-        return String(format: "%02d:%02d", hour, minute)
     }
 
     private static let dateFormatter: DateFormatter = {
