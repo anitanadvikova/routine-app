@@ -11,7 +11,7 @@ import UIKit
 
 struct RoutineRulesView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \TaskRule.title) private var rules: [TaskRule]
+    @Query private var rules: [TaskRule]
 
     @State private var isCreateEditorPresented = false
     @State private var editingRule: TaskRule?
@@ -25,13 +25,22 @@ struct RoutineRulesView: View {
 
     @State private var errorMessage: String?
 
+    private var sortedRules: [TaskRule] {
+        rules.sorted { lhs, rhs in
+            if lhs.sortOrder == rhs.sortOrder {
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+            return lhs.sortOrder < rhs.sortOrder
+        }
+    }
+
     var body: some View {
         List {
-            if rules.isEmpty {
+            if sortedRules.isEmpty {
                 Text("Пока нет рутинных правил")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(rules, id: \.id) { rule in
+                ForEach(sortedRules, id: \.id) { rule in
                     Button {
                         editingRule = rule
                     } label: {
@@ -46,10 +55,14 @@ struct RoutineRulesView: View {
                         }
                     }
                 }
+                .onMove(perform: moveRules)
                 .onDelete(perform: deleteRules)
             }
         }
         .navigationTitle("Правила рутины")
+        .onAppear {
+            normalizeSortOrderIfNeeded()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Menu("JSON") {
@@ -62,7 +75,8 @@ struct RoutineRulesView: View {
                     }
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                EditButton()
                 Button {
                     editingRule = nil
                     isCreateEditorPresented = true
@@ -154,7 +168,11 @@ struct RoutineRulesView: View {
             if let editingRule {
                 targetRule = editingRule
             } else {
-                targetRule = TaskRule(title: input.title, scheduleType: input.scheduleType)
+                targetRule = TaskRule(
+                    sortOrder: nextSortOrder(),
+                    title: input.title,
+                    scheduleType: input.scheduleType
+                )
                 modelContext.insert(targetRule)
             }
 
@@ -163,8 +181,6 @@ struct RoutineRulesView: View {
             targetRule.weeklyDays = input.weeklyDays
             targetRule.intervalDays = input.intervalDays
             targetRule.startDate = input.startDate
-            targetRule.startTimeHour = input.startTimeEnabled ? input.startTimeHour : nil
-            targetRule.startTimeMinute = input.startTimeEnabled ? input.startTimeMinute : nil
             targetRule.isImportant = input.isImportant
             targetRule.markerColor = input.markerColor
             targetRule.notes = input.notes.isEmpty ? nil : input.notes
@@ -198,12 +214,54 @@ struct RoutineRulesView: View {
 
     private func deleteRules(at offsets: IndexSet) {
         do {
-            for index in offsets {
-                modelContext.delete(rules[index])
+            let rulesToDelete = offsets.map { sortedRules[$0] }
+            for rule in rulesToDelete {
+                modelContext.delete(rule)
             }
+            resequenceRules(sortedRules.filter { rule in
+                !rulesToDelete.contains(where: { $0.id == rule.id })
+            })
             try modelContext.save()
         } catch {
             errorMessage = "Не удалось удалить правило: \(error.localizedDescription)"
+        }
+    }
+
+    private func moveRules(from offsets: IndexSet, to destination: Int) {
+        var reorderedRules = sortedRules
+        reorderedRules.move(fromOffsets: offsets, toOffset: destination)
+
+        do {
+            resequenceRules(reorderedRules)
+            try modelContext.save()
+        } catch {
+            errorMessage = "Не удалось сохранить порядок: \(error.localizedDescription)"
+        }
+    }
+
+    private func nextSortOrder() -> Int {
+        (rules.map(\.sortOrder).max() ?? -1) + 1
+    }
+
+    private func normalizeSortOrderIfNeeded() {
+        let currentRules = sortedRules
+        let needsNormalization = currentRules.enumerated().contains { index, rule in
+            rule.sortOrder != index
+        }
+
+        guard needsNormalization else { return }
+
+        do {
+            resequenceRules(currentRules)
+            try modelContext.save()
+        } catch {
+            errorMessage = "Не удалось обновить порядок: \(error.localizedDescription)"
+        }
+    }
+
+    private func resequenceRules(_ rules: [TaskRule]) {
+        for (index, rule) in rules.enumerated() {
+            rule.sortOrder = index
         }
     }
 
@@ -218,7 +276,7 @@ struct RoutineRulesView: View {
 
     private func exportRules() {
         do {
-            exportText = try TaskRuleJSONCodec.exportJSONString(from: rules)
+            exportText = try TaskRuleJSONCodec.exportJSONString(from: sortedRules)
             isExportPresented = true
         } catch {
             errorMessage = "Ошибка выгрузки JSON: \(error.localizedDescription)"
@@ -304,13 +362,6 @@ private struct RoutineRuleEditorSheet: View {
                     }
                 }
 
-                Section("Время") {
-                    Toggle("Указать время", isOn: $input.startTimeEnabled)
-                    if input.startTimeEnabled {
-                        DatePicker("Время", selection: $input.startTimeDate, displayedComponents: .hourAndMinute)
-                    }
-                }
-
                 Section("Заметки") {
                     TextField("Опционально", text: $input.notes, axis: .vertical)
                         .lineLimit(3...6)
@@ -355,8 +406,6 @@ private struct RoutineRuleInput {
     var weeklyDays: [Weekday]
     var intervalDays: Int
     var intervalStartDate: Date
-    var startTimeEnabled: Bool
-    var startTimeDate: Date
     var isImportant: Bool
     var markerColor: TaskMarkerColor
     var notes: String
@@ -366,16 +415,6 @@ private struct RoutineRuleInput {
         scheduleType == .interval ? Calendar.current.startOfDay(for: intervalStartDate) : nil
     }
 
-    var startTimeHour: Int? {
-        guard startTimeEnabled else { return nil }
-        return Calendar.current.component(.hour, from: startTimeDate)
-    }
-
-    var startTimeMinute: Int? {
-        guard startTimeEnabled else { return nil }
-        return Calendar.current.component(.minute, from: startTimeDate)
-    }
-
     init(rule: TaskRule?) {
         let now = Date()
         self.title = rule?.title ?? ""
@@ -383,11 +422,6 @@ private struct RoutineRuleInput {
         self.weeklyDays = rule?.weeklyDays ?? []
         self.intervalDays = max(1, rule?.intervalDays ?? 1)
         self.intervalStartDate = rule?.startDate ?? now
-        self.startTimeEnabled = (rule?.startTimeHour != nil && rule?.startTimeMinute != nil)
-        self.startTimeDate = RoutineRuleInput.makeTimeDate(
-            hour: rule?.startTimeHour,
-            minute: rule?.startTimeMinute
-        ) ?? now
         self.isImportant = rule?.isImportant ?? false
         self.markerColor = rule?.markerColor ?? .white
         self.notes = rule?.notes ?? ""
@@ -404,14 +438,6 @@ private struct RoutineRuleInput {
             copy.intervalDays = 1
         }
         return copy
-    }
-
-    private static func makeTimeDate(hour: Int?, minute: Int?) -> Date? {
-        guard let hour, let minute else { return nil }
-        var components = DateComponents()
-        components.hour = hour
-        components.minute = minute
-        return Calendar.current.date(from: components)
     }
 }
 

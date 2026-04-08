@@ -12,6 +12,7 @@ import UIKit
 struct ListsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \UserList.title) private var lists: [UserList]
+    @Query(sort: \QuickTask.createdAt, order: .forward) private var quickTasks: [QuickTask]
 
     @State private var isImportPresented = false
     @State private var importText = ""
@@ -37,6 +38,9 @@ struct ListsView: View {
                 }
             }
             .navigationTitle("Бэклог")
+            .safeAreaInset(edge: .top) {
+                Color.clear.frame(height: 8)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu("JSON") {
@@ -154,7 +158,7 @@ struct ListsView: View {
 
     private func exportLists() {
         do {
-            exportText = try BacklogJSONCodec.exportJSONString(from: lists)
+            exportText = try BacklogJSONCodec.exportJSONString(from: lists, quickTasks: quickTasks)
             isExportPresented = true
         } catch {
             errorMessage = "Ошибка выгрузки JSON: \(error.localizedDescription)"
@@ -177,7 +181,11 @@ private struct UserListDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var userList: UserList
 
+    @State private var isCreateItemSheetPresented = false
+    @State private var editingItem: UserListItem?
     @State private var newItemText = ""
+    @State private var newItemComment = ""
+    @State private var newItemIsImportant = false
     @State private var errorMessage: String?
 
     private var sortedItems: [UserListItem] {
@@ -186,46 +194,103 @@ private struct UserListDetailView: View {
 
     var body: some View {
         List {
-            Section("Новый пункт") {
-                HStack {
-                    TextField("Добавить задачу", text: $newItemText)
-                    Button("Добавить") {
-                        addItem()
-                    }
-                    .disabled(newItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
+            if sortedItems.isEmpty {
+                Text("Пока пусто")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(sortedItems, id: \.id) { item in
+                    let comment = normalizedComment(item.comment)
+                    HStack(spacing: 12) {
+                        Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(item.isCompleted ? .green : .secondary)
+                            .frame(width: 22, height: 22)
 
-            Section("Пункты") {
-                if sortedItems.isEmpty {
-                    Text("Пока пусто")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(sortedItems, id: \.id) { item in
-                        HStack(spacing: 12) {
-                            Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(item.isCompleted ? .green : .secondary)
+                        if item.isImportant {
+                            Circle()
+                                .fill(.orange)
+                                .frame(width: 8, height: 8)
+                        }
 
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(item.text)
                                 .strikethrough(item.isCompleted, color: .secondary)
                                 .foregroundStyle(item.isCompleted ? .secondary : .primary)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            toggleItem(item)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                deleteItem(item)
-                            } label: {
-                                Label("Удалить", systemImage: "trash")
+                            if let comment {
+                                Text(comment)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
                             }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minHeight: 38, alignment: comment == nil ? .center : .top)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        toggleItem(item)
+                    }
+                    .onLongPressGesture {
+                        startEditing(item)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            deleteItem(item)
+                        } label: {
+                            Label("Удалить", systemImage: "trash")
                         }
                     }
                 }
             }
         }
         .navigationTitle(userList.title)
+        .safeAreaInset(edge: .top) {
+            Color.clear.frame(height: 8)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    editingItem = nil
+                    newItemText = ""
+                    newItemComment = ""
+                    newItemIsImportant = false
+                    isCreateItemSheetPresented = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Добавить пункт")
+            }
+        }
+        .sheet(isPresented: $isCreateItemSheetPresented) {
+            NavigationStack {
+                Form {
+                    Section("Название") {
+                        TextField("Например: Купить яблоки", text: $newItemText)
+                    }
+                    Section("Комментарий") {
+                        TextField("Опционально", text: $newItemComment, axis: .vertical)
+                            .lineLimit(2...4)
+                    }
+                    Section("Опции") {
+                        Toggle("Важная задача", isOn: $newItemIsImportant)
+                    }
+                }
+                .navigationTitle(editingItem == nil ? "Добавить" : "Редактировать")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Закрыть") {
+                            isCreateItemSheetPresented = false
+                            editingItem = nil
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Сохранить") {
+                            addItem()
+                        }
+                        .disabled(newItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
         .alert("Ошибка", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -241,11 +306,26 @@ private struct UserListDetailView: View {
         guard !text.isEmpty else { return }
 
         do {
-            let item = UserListItem(text: text, list: userList)
-            modelContext.insert(item)
-            userList.items.append(item)
+            if let editingItem {
+                editingItem.text = text
+                editingItem.comment = normalizedComment(newItemComment)
+                editingItem.isImportant = newItemIsImportant
+            } else {
+                let item = UserListItem(
+                    text: text,
+                    comment: normalizedComment(newItemComment),
+                    isImportant: newItemIsImportant,
+                    list: userList
+                )
+                modelContext.insert(item)
+                userList.items.append(item)
+            }
             try modelContext.save()
             newItemText = ""
+            newItemComment = ""
+            newItemIsImportant = false
+            isCreateItemSheetPresented = false
+            editingItem = nil
         } catch {
             errorMessage = "Не удалось добавить пункт: \(error.localizedDescription)"
         }
@@ -268,6 +348,20 @@ private struct UserListDetailView: View {
         } catch {
             errorMessage = "Не удалось удалить пункт: \(error.localizedDescription)"
         }
+    }
+
+    private func startEditing(_ item: UserListItem) {
+        editingItem = item
+        newItemText = item.text
+        newItemComment = item.comment ?? ""
+        newItemIsImportant = item.isImportant
+        isCreateItemSheetPresented = true
+    }
+
+    private func normalizedComment(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
 }
 

@@ -42,13 +42,12 @@ enum TaskMarkerColor: String, Codable, CaseIterable, Identifiable {
 @Model
 final class TaskRule {
     var id: UUID
+    var sortOrderValue: Int?
     var title: String
     var scheduleTypeRaw: String
     var weeklyDaysRaw: [Int]
     var intervalDays: Int?
     var startDate: Date?
-    var startTimeHour: Int?
-    var startTimeMinute: Int?
     var isImportant: Bool
     var markerColorRaw: String?
     var notes: String?
@@ -56,26 +55,24 @@ final class TaskRule {
 
     init(
         id: UUID = UUID(),
+        sortOrder: Int = 0,
         title: String,
         scheduleType: TaskScheduleType,
         weeklyDays: [Weekday] = [],
         intervalDays: Int? = nil,
         startDate: Date? = nil,
-        startTimeHour: Int? = nil,
-        startTimeMinute: Int? = nil,
         isImportant: Bool = false,
         markerColor: TaskMarkerColor = .white,
         notes: String? = nil,
         isActive: Bool = true
     ) {
         self.id = id
+        self.sortOrderValue = sortOrder
         self.title = title
         self.scheduleTypeRaw = scheduleType.rawValue
         self.weeklyDaysRaw = weeklyDays.map(\.rawValue)
         self.intervalDays = intervalDays
         self.startDate = startDate
-        self.startTimeHour = startTimeHour
-        self.startTimeMinute = startTimeMinute
         self.isImportant = isImportant
         self.markerColorRaw = markerColor.rawValue
         self.notes = notes
@@ -84,6 +81,11 @@ final class TaskRule {
 }
 
 extension TaskRule {
+    var sortOrder: Int {
+        get { sortOrderValue ?? 0 }
+        set { sortOrderValue = newValue }
+    }
+
     var scheduleType: TaskScheduleType {
         get { TaskScheduleType(rawValue: scheduleTypeRaw) ?? .floating }
         set { scheduleTypeRaw = newValue.rawValue }
@@ -105,10 +107,10 @@ extension TaskMarkerColor {
         switch self {
         case .white: return "Белый"
         case .red: return "Красный"
-        case .orange: return "Оранжевый"
-        case .yellow: return "Желтый"
-        case .green: return "Зеленый"
-        case .blue: return "Синий"
+        case .orange: return "Оранжевый (развитие)"
+        case .yellow: return "Желтый (быт)"
+        case .green: return "Зеленый (здоровье)"
+        case .blue: return "Синий (спорт)"
         case .pink: return "Розовый"
         }
     }
@@ -187,6 +189,8 @@ final class UserList {
 final class UserListItem {
     var id: UUID
     var text: String
+    var comment: String?
+    var isImportant: Bool
     var isCompleted: Bool
     var createdAt: Date
 
@@ -195,12 +199,16 @@ final class UserListItem {
     init(
         id: UUID = UUID(),
         text: String,
+        comment: String? = nil,
+        isImportant: Bool = false,
         isCompleted: Bool = false,
         createdAt: Date = Date(),
         list: UserList? = nil
     ) {
         self.id = id
         self.text = text
+        self.comment = comment
+        self.isImportant = isImportant
         self.isCompleted = isCompleted
         self.createdAt = createdAt
         self.list = list
@@ -211,6 +219,7 @@ final class UserListItem {
 final class QuickTask {
     var id: UUID
     var title: String
+    var comment: String?
     var isChecked: Bool
     var isImportant: Bool
     var createdAt: Date
@@ -218,12 +227,14 @@ final class QuickTask {
     init(
         id: UUID = UUID(),
         title: String,
+        comment: String? = nil,
         isChecked: Bool = false,
         isImportant: Bool = false,
         createdAt: Date = Date()
     ) {
         self.id = id
         self.title = title
+        self.comment = comment
         self.isChecked = isChecked
         self.isImportant = isImportant
         self.createdAt = createdAt

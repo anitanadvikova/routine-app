@@ -18,7 +18,6 @@ struct TodayWidgetSnapshot: Codable {
 
 struct TodayWidgetTaskSnapshot: Codable {
     let title: String
-    let timeText: String?
 }
 
 @MainActor
@@ -89,29 +88,17 @@ enum TodayWidgetSnapshotStore {
             }
             .filter { !completedTaskIDsToday.contains($0.id) }
             .sorted { lhs, rhs in
-                sortKey(for: lhs) < sortKey(for: rhs)
+                if lhs.sortOrder == rhs.sortOrder {
+                    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
+                return lhs.sortOrder < rhs.sortOrder
             }
             .map { rule in
                 TodayWidgetTaskSnapshot(
-                    title: rule.title,
-                    timeText: timeText(for: rule)
+                    title: rule.title
                 )
             }
 
         return TodayWidgetSnapshot(generatedAt: today, tasks: tasks)
-    }
-
-    private static func sortKey(for rule: TaskRule) -> (Int, Int, Int, String) {
-        if let hour = rule.startTimeHour, let minute = rule.startTimeMinute {
-            return (0, hour, minute, rule.title.lowercased())
-        }
-        return (1, 0, 0, rule.title.lowercased())
-    }
-
-    private static func timeText(for rule: TaskRule) -> String? {
-        guard let hour = rule.startTimeHour, let minute = rule.startTimeMinute else {
-            return nil
-        }
-        return String(format: "%02d:%02d", hour, minute)
     }
 }
