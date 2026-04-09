@@ -37,12 +37,17 @@ enum TaskRuleJSONCodecError: LocalizedError {
 struct TaskRuleJSONCodec {
     @MainActor
     static func exportJSONString(from rules: [TaskRule]) throws -> String {
+        var taskDTOs: [RoutineTaskDTO] = []
+        taskDTOs.reserveCapacity(rules.count)
+        for rule in rules {
+            taskDTOs.append(RoutineTaskDTO(rule: rule))
+        }
+
         let payload = RoutineRulesPayload(
             version: 1,
-            tasks: rules.map(RoutineTaskDTO.init(rule:))
+            tasks: taskDTOs
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoder = makeJSONEncoder()
         let data = try encoder.encode(payload)
         return String(decoding: data, as: UTF8.self)
     }
@@ -56,6 +61,7 @@ struct TaskRuleJSONCodec {
         for rule in existing {
             modelContext.delete(rule)
         }
+        try modelContext.save()
 
         for (index, dto) in payload.tasks.enumerated() {
             let rule = try dto.toTaskRule(defaultSortOrder: index)
@@ -63,6 +69,12 @@ struct TaskRuleJSONCodec {
         }
 
         try modelContext.save()
+    }
+
+    private static func makeJSONEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
     }
 }
 

@@ -19,13 +19,14 @@ struct ListsView: View {
     @State private var isExportPresented = false
     @State private var exportText = ""
     @State private var isCopyToastPresented = false
+    @State private var listsByTitle: [String: UserList] = [:]
     @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             List {
                 ForEach(defaultCategories, id: \.self) { category in
-                    if let list = lists.first(where: { $0.title == category }) {
+                    if let list = listsByTitle[category] {
                         NavigationLink {
                             UserListDetailView(userList: list)
                         } label: {
@@ -56,6 +57,10 @@ struct ListsView: View {
             }
             .onAppear {
                 ensureDefaultLists()
+                refreshListsByTitle()
+            }
+            .onChange(of: lists.count) { _, _ in
+                refreshListsByTitle()
             }
             .sheet(isPresented: $isImportPresented) {
                 NavigationStack {
@@ -68,7 +73,7 @@ struct ListsView: View {
                     .navigationTitle("Загрузить JSON")
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Закрыть") { isImportPresented = false }
+                            Button("Закрыть") { closeImportSheet() }
                         }
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Импортировать") {
@@ -92,7 +97,7 @@ struct ListsView: View {
                         .navigationTitle("Выгрузить JSON")
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Закрыть") { isExportPresented = false }
+                                Button("Закрыть") { closeExportSheet() }
                             }
                             ToolbarItem(placement: .confirmationAction) {
                                 Button("Скопировать") {
@@ -140,6 +145,7 @@ struct ListsView: View {
 
             if inserted {
                 try modelContext.save()
+                refreshListsByTitle()
             }
         } catch {
             errorMessage = "Не удалось создать категории: \(error.localizedDescription)"
@@ -150,7 +156,7 @@ struct ListsView: View {
         do {
             try BacklogJSONCodec.replaceLists(from: importText, modelContext: modelContext)
             ensureDefaultLists()
-            isImportPresented = false
+            closeImportSheet()
         } catch {
             errorMessage = "Ошибка импорта JSON: \(error.localizedDescription)"
         }
@@ -175,6 +181,20 @@ struct ListsView: View {
             }
         }
     }
+
+    private func refreshListsByTitle() {
+        listsByTitle = Dictionary(uniqueKeysWithValues: lists.map { ($0.title, $0) })
+    }
+
+    private func closeImportSheet() {
+        importText = ""
+        isImportPresented = false
+    }
+
+    private func closeExportSheet() {
+        exportText = ""
+        isExportPresented = false
+    }
 }
 
 private struct UserListDetailView: View {
@@ -186,11 +206,8 @@ private struct UserListDetailView: View {
     @State private var newItemText = ""
     @State private var newItemComment = ""
     @State private var newItemIsImportant = false
+    @State private var sortedItems: [UserListItem] = []
     @State private var errorMessage: String?
-
-    private var sortedItems: [UserListItem] {
-        userList.items.sorted { $0.createdAt < $1.createdAt }
-    }
 
     var body: some View {
         List {
@@ -243,6 +260,12 @@ private struct UserListDetailView: View {
             }
         }
         .navigationTitle(userList.title)
+        .onAppear {
+            refreshSortedItems()
+        }
+        .onChange(of: userList.items.count) { _, _ in
+            refreshSortedItems()
+        }
         .safeAreaInset(edge: .top) {
             Color.clear.frame(height: 8)
         }
@@ -321,6 +344,7 @@ private struct UserListDetailView: View {
                 userList.items.append(item)
             }
             try modelContext.save()
+            refreshSortedItems()
             newItemText = ""
             newItemComment = ""
             newItemIsImportant = false
@@ -335,6 +359,7 @@ private struct UserListDetailView: View {
         do {
             item.isCompleted.toggle()
             try modelContext.save()
+            refreshSortedItems()
         } catch {
             errorMessage = "Не удалось обновить пункт: \(error.localizedDescription)"
         }
@@ -345,6 +370,7 @@ private struct UserListDetailView: View {
             userList.items.removeAll { $0.id == item.id }
             modelContext.delete(item)
             try modelContext.save()
+            refreshSortedItems()
         } catch {
             errorMessage = "Не удалось удалить пункт: \(error.localizedDescription)"
         }
@@ -362,6 +388,10 @@ private struct UserListDetailView: View {
         guard let value else { return nil }
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedValue.isEmpty ? nil : trimmedValue
+    }
+
+    private func refreshSortedItems() {
+        sortedItems = userList.items.sorted { $0.createdAt < $1.createdAt }
     }
 }
 
