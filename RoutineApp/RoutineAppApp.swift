@@ -10,7 +10,14 @@ import SwiftData
 
 @main
 struct RoutineAppApp: App {
-    private let sharedModelContainer = ModelContainerFactory.makeSharedContainer()
+    private let sharedModelContainer: ModelContainer
+
+    @MainActor
+    init() {
+        let container = ModelContainerFactory.makeSharedContainer()
+        try? TaskCompletionHistoryCleaner.removeEntriesOlderThanCurrentWeek(from: container)
+        sharedModelContainer = container
+    }
 
     var body: some Scene {
         WindowGroup {

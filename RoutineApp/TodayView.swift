@@ -11,9 +11,11 @@ import SwiftData
 struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var rules: [TaskRule]
-    @Query private var completions: [TaskCompletion]
     private let hiddenRuleIDsDefaultsKeyPrefix = "TodayView.hiddenRuleIDs"
-    @State private var selectedDate = Calendar.current.startOfDay(for: Date())
+    @Binding var selectedDate: Date
+    @State private var weeklyCompletions: [TaskCompletion] = []
+    @State private var completedTaskIDsForSelectedDate: Set<UUID> = []
+    @State private var visibleRules: [TaskRule] = []
     @State private var errorMessage: String?
 
     var body: some View {
@@ -37,13 +39,12 @@ struct TodayView: View {
                 }
 
                 Section("Рутинные задачи на сегодня") {
-                    let todayRules = rulesForSelectedDate(from: rules)
-                    if todayRules.isEmpty {
+                    if visibleRules.isEmpty {
                         Text("На сегодня нет рутинных задач")
                             .foregroundStyle(.secondary)
                             .listRowSeparator(.hidden)
                     } else {
-                        ForEach(todayRules, id: \.id) { rule in
+                        ForEach(visibleRules, id: \.id) { rule in
                             let completionState = isCompletedToday(rule)
                             let comment = normalizedComment(rule.notes)
 
@@ -114,6 +115,17 @@ struct TodayView: View {
             } message: {
                 Text(errorMessage ?? "Неизвестная ошибка")
             }
+            .task {
+                refreshWeeklyCompletions()
+                refreshVisibleRules()
+            }
+            .onChange(of: selectedDate) { _, _ in
+                updateCompletedTaskIDsForSelectedDate()
+                refreshVisibleRules()
+            }
+            .onChange(of: rules.count) { _, _ in
+                refreshVisibleRules()
+            }
         }
     }
 
@@ -122,16 +134,6 @@ struct TodayView: View {
         let targetDate = calendar.startOfDay(for: selectedDate)
         let weekday = calendar.component(.weekday, from: targetDate)
         let hiddenRuleIDs = hiddenRuleIDs(for: targetDate)
-        let completedTaskIDsInPast = Set(
-            completions
-                .filter { $0.isCompleted && Calendar.current.startOfDay(for: $0.date) < targetDate }
-                .map(\.taskId)
-        )
-        let completedTaskIDsToday = Set(
-            completions
-                .filter { $0.isCompleted && Calendar.current.isDate($0.date, inSameDayAs: targetDate) }
-                .map(\.taskId)
-        )
 
         return rules
             .filter(\.isActive)
@@ -149,7 +151,7 @@ struct TodayView: View {
                     let days = calendar.dateComponents([.day], from: start, to: targetDate).day ?? 0
                     return days % interval == 0
                 case .floating:
-                    return !completedTaskIDsInPast.contains(rule.id) || completedTaskIDsToday.contains(rule.id)
+                    return true
                 }
             }
             .filter { !hiddenRuleIDs.contains($0.id.uuidString) }
@@ -162,16 +164,14 @@ struct TodayView: View {
     }
 
     private func isCompletedToday(_ rule: TaskRule) -> Bool {
-        completions.contains {
-            $0.taskId == rule.id && $0.isCompleted && Calendar.current.isDate($0.date, inSameDayAs: selectedDate)
-        }
+        completedTaskIDsForSelectedDate.contains(rule.id)
     }
 
     private func toggleCompletion(for rule: TaskRule) {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: selectedDate)
 
-        if let existing = completions.first(where: { $0.taskId == rule.id && calendar.isDate($0.date, inSameDayAs: today) }) {
+        if let existing = weeklyCompletions.first(where: { $0.taskId == rule.id && calendar.isDate($0.date, inSameDayAs: today) }) {
             existing.isCompleted.toggle()
             existing.completedAt = existing.isCompleted ? Date() : nil
         } else {
@@ -182,11 +182,14 @@ struct TodayView: View {
                 completedAt: Date()
             )
             modelContext.insert(completion)
+            weeklyCompletions.append(completion)
         }
 
         do {
             try modelContext.save()
+            updateCompletedTaskIDsForSelectedDate()
             unhideRule(rule, on: today)
+            refreshVisibleRules()
         } catch {
             errorMessage = "Не удалось обновить выполнение: \(error.localizedDescription)"
         }
@@ -197,6 +200,7 @@ struct TodayView: View {
         var hiddenRuleIDs = hiddenRuleIDs(for: targetDate)
         hiddenRuleIDs.insert(rule.id.uuidString)
         saveHiddenRuleIDs(hiddenRuleIDs, for: targetDate)
+        refreshVisibleRules()
     }
 
     private func hiddenRuleIDs(for date: Date) -> Set<String> {
@@ -228,23 +232,54 @@ struct TodayView: View {
     }
 
     private var currentWeekDates: [Date] {
-        let calendar = Calendar.current
-        guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else {
-            return [calendar.startOfDay(for: Date())]
-        }
-
         return (0..<7).compactMap { offset in
-            calendar.date(byAdding: .day, value: offset, to: interval.start).map {
-                calendar.startOfDay(for: $0)
+            Calendar.current.date(byAdding: .day, value: offset, to: currentWeekInterval.start).map {
+                Calendar.current.startOfDay(for: $0)
             }
         }
     }
 
+    private var currentWeekInterval: DateInterval {
+        let calendar = Calendar.current
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: Date()) else {
+            let today = calendar.startOfDay(for: Date())
+            let end = calendar.date(byAdding: .day, value: 7, to: today) ?? today
+            return DateInterval(start: today, end: end)
+        }
+        return interval
+    }
+
+    private func refreshWeeklyCompletions() {
+        do {
+            let interval = currentWeekInterval
+            let descriptor = FetchDescriptor<TaskCompletion>(
+                predicate: #Predicate<TaskCompletion> { completion in
+                    completion.date >= interval.start && completion.date < interval.end
+                }
+            )
+            weeklyCompletions = try modelContext.fetch(descriptor)
+            updateCompletedTaskIDsForSelectedDate()
+        } catch {
+            errorMessage = "Не удалось загрузить историю выполнения: \(error.localizedDescription)"
+        }
+    }
+
+    private func updateCompletedTaskIDsForSelectedDate() {
+        let calendar = Calendar.current
+        let targetDate = calendar.startOfDay(for: selectedDate)
+        completedTaskIDsForSelectedDate = Set(
+            weeklyCompletions
+                .filter { $0.isCompleted && calendar.isDate($0.date, inSameDayAs: targetDate) }
+                .map(\.taskId)
+        )
+    }
+
+    private func refreshVisibleRules() {
+        visibleRules = rulesForSelectedDate(from: rules)
+    }
+
     private func weekdayText(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateFormat = "EEEE"
-        return formatter.string(from: date).capitalized(with: formatter.locale)
+        Self.weekdayFormatter.string(from: date).capitalized(with: Self.weekdayFormatter.locale)
     }
 
     private func normalizedComment(_ value: String?) -> String? {
@@ -252,8 +287,15 @@ struct TodayView: View {
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedValue.isEmpty ? nil : trimmedValue
     }
+
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "EEEE"
+        return formatter
+    }()
 }
 
 #Preview {
-    TodayView()
+    TodayView(selectedDate: .constant(Calendar.current.startOfDay(for: Date())))
 }

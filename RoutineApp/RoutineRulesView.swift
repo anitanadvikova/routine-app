@@ -23,16 +23,8 @@ struct RoutineRulesView: View {
     @State private var exportText = ""
     @State private var isCopyToastPresented = false
 
+    @State private var sortedRules: [TaskRule] = []
     @State private var errorMessage: String?
-
-    private var sortedRules: [TaskRule] {
-        rules.sorted { lhs, rhs in
-            if lhs.sortOrder == rhs.sortOrder {
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-            }
-            return lhs.sortOrder < rhs.sortOrder
-        }
-    }
 
     var body: some View {
         List {
@@ -61,7 +53,11 @@ struct RoutineRulesView: View {
         }
         .navigationTitle("Правила рутины")
         .onAppear {
+            refreshSortedRules()
             normalizeSortOrderIfNeeded()
+        }
+        .onChange(of: rules.count) { _, _ in
+            refreshSortedRules()
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -107,7 +103,7 @@ struct RoutineRulesView: View {
                 .navigationTitle("Загрузить JSON")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Закрыть") { isImportPresented = false }
+                        Button("Закрыть") { closeImportSheet() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Импортировать") {
@@ -131,7 +127,7 @@ struct RoutineRulesView: View {
                     .navigationTitle("Выгрузить JSON")
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Закрыть") { isExportPresented = false }
+                            Button("Закрыть") { closeExportSheet() }
                         }
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Скопировать") {
@@ -188,6 +184,7 @@ struct RoutineRulesView: View {
 
             try validateRule(targetRule)
             try modelContext.save()
+            refreshSortedRules()
             editingRule = nil
             isCreateEditorPresented = false
         } catch {
@@ -222,6 +219,7 @@ struct RoutineRulesView: View {
                 !rulesToDelete.contains(where: { $0.id == rule.id })
             })
             try modelContext.save()
+            refreshSortedRules()
         } catch {
             errorMessage = "Не удалось удалить правило: \(error.localizedDescription)"
         }
@@ -234,6 +232,7 @@ struct RoutineRulesView: View {
         do {
             resequenceRules(reorderedRules)
             try modelContext.save()
+            refreshSortedRules()
         } catch {
             errorMessage = "Не удалось сохранить порядок: \(error.localizedDescription)"
         }
@@ -254,6 +253,7 @@ struct RoutineRulesView: View {
         do {
             resequenceRules(currentRules)
             try modelContext.save()
+            refreshSortedRules()
         } catch {
             errorMessage = "Не удалось обновить порядок: \(error.localizedDescription)"
         }
@@ -265,10 +265,19 @@ struct RoutineRulesView: View {
         }
     }
 
+    private func refreshSortedRules() {
+        sortedRules = rules.sorted { lhs, rhs in
+            if lhs.sortOrder == rhs.sortOrder {
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+            return lhs.sortOrder < rhs.sortOrder
+        }
+    }
+
     private func importRules() {
         do {
             try TaskRuleJSONCodec.replaceRules(from: importText, modelContext: modelContext)
-            isImportPresented = false
+            closeImportSheet()
         } catch {
             errorMessage = "Ошибка импорта JSON: \(error.localizedDescription)"
         }
@@ -292,6 +301,16 @@ struct RoutineRulesView: View {
                 isCopyToastPresented = false
             }
         }
+    }
+
+    private func closeImportSheet() {
+        importText = ""
+        isImportPresented = false
+    }
+
+    private func closeExportSheet() {
+        exportText = ""
+        isExportPresented = false
     }
 
     private func scheduleDescription(for rule: TaskRule) -> String? {

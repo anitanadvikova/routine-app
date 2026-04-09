@@ -48,3 +48,28 @@ enum ModelContainerFactory {
         }
     }
 }
+
+enum TaskCompletionHistoryCleaner {
+    @MainActor
+    static func removeEntriesOlderThanCurrentWeek(from container: ModelContainer) throws {
+        let context = container.mainContext
+        let calendar = Calendar.current
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
+        let descriptor = FetchDescriptor<TaskCompletion>(
+            predicate: #Predicate<TaskCompletion> { completion in
+                completion.date < weekStart
+            }
+        )
+        let outdatedCompletions = try context.fetch(descriptor)
+
+        guard !outdatedCompletions.isEmpty else {
+            return
+        }
+
+        for completion in outdatedCompletions {
+            context.delete(completion)
+        }
+
+        try context.save()
+    }
+}

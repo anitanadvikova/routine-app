@@ -11,15 +11,25 @@ import SwiftData
 struct BacklogJSONCodec {
     @MainActor
     static func exportJSONString(from lists: [UserList], quickTasks: [QuickTask]) throws -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoder = makeJSONEncoder()
+        let sortedLists = lists.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        let sortedQuickTasks = quickTasks.sorted { $0.createdAt < $1.createdAt }
+
+        var listPayloads: [BacklogListPayload] = []
+        listPayloads.reserveCapacity(sortedLists.count)
+        for list in sortedLists {
+            listPayloads.append(BacklogListPayload(list: list))
+        }
+
+        var quickTaskPayloads: [BacklogQuickTaskPayload] = []
+        quickTaskPayloads.reserveCapacity(sortedQuickTasks.count)
+        for task in sortedQuickTasks {
+            quickTaskPayloads.append(BacklogQuickTaskPayload(task: task))
+        }
+
         let payload = BacklogPayload(
-            lists: lists
-                .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-                .map(BacklogListPayload.init(list:)),
-            weekTasks: quickTasks
-                .sorted { $0.createdAt < $1.createdAt }
-                .map(BacklogQuickTaskPayload.init(task:))
+            lists: listPayloads,
+            weekTasks: quickTaskPayloads
         )
         let data = try encoder.encode(payload)
         return String(decoding: data, as: UTF8.self)
@@ -40,6 +50,7 @@ struct BacklogJSONCodec {
         for task in existingQuickTasks {
             modelContext.delete(task)
         }
+        try modelContext.save()
 
         for listPayload in payload.lists {
             let list = UserList(title: listPayload.list)
@@ -68,6 +79,12 @@ struct BacklogJSONCodec {
         try modelContext.save()
     }
 
+    private static func makeJSONEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
     private static func decodePayload(from data: Data, using decoder: JSONDecoder) throws -> BacklogPayload {
         if let payload = try? decoder.decode(BacklogPayload.self, from: data) {
             return payload
@@ -90,9 +107,13 @@ struct BacklogListPayload: Codable {
     @MainActor
     init(list: UserList) {
         self.list = list.title
-        self.tasks = list.items
-            .sorted { $0.createdAt < $1.createdAt }
-            .map(BacklogTaskPayload.init(item:))
+        let sortedItems = list.items.sorted { $0.createdAt < $1.createdAt }
+        var tasks: [BacklogTaskPayload] = []
+        tasks.reserveCapacity(sortedItems.count)
+        for item in sortedItems {
+            tasks.append(BacklogTaskPayload(item: item))
+        }
+        self.tasks = tasks
     }
 }
 
