@@ -13,7 +13,12 @@ struct BacklogJSONCodec {
     static func exportJSONString(from lists: [UserList], quickTasks: [QuickTask]) throws -> String {
         let encoder = makeJSONEncoder()
         let sortedLists = lists.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        let sortedQuickTasks = quickTasks.sorted { $0.createdAt < $1.createdAt }
+        let sortedQuickTasks = quickTasks.sorted { lhs, rhs in
+            if lhs.sortOrder == rhs.sortOrder {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.sortOrder < rhs.sortOrder
+        }
 
         var listPayloads: [BacklogListPayload] = []
         listPayloads.reserveCapacity(sortedLists.count)
@@ -64,9 +69,10 @@ struct BacklogJSONCodec {
             }
         }
 
-        for task in payload.weekTasks {
+        for (index, task) in payload.weekTasks.enumerated() {
             modelContext.insert(
                 QuickTask(
+                    sortOrder: task.sortOrder ?? index,
                     title: task.title,
                     comment: task.comment,
                     isChecked: task.isChecked,
@@ -145,6 +151,7 @@ struct BacklogTaskPayload: Codable {
 }
 
 struct BacklogQuickTaskPayload: Codable {
+    let sortOrder: Int?
     let title: String
     let comment: String?
     let isChecked: Bool
@@ -152,6 +159,7 @@ struct BacklogQuickTaskPayload: Codable {
     let createdAt: Date
 
     init(task: QuickTask) {
+        self.sortOrder = task.sortOrder
         self.title = task.title
         self.comment = task.comment
         self.isChecked = task.isChecked

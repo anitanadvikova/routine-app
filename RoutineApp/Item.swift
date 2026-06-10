@@ -218,6 +218,7 @@ final class UserListItem {
 @Model
 final class QuickTask {
     var id: UUID
+    var sortOrderValue: Int?
     var title: String
     var comment: String?
     var isChecked: Bool
@@ -226,6 +227,7 @@ final class QuickTask {
 
     init(
         id: UUID = UUID(),
+        sortOrder: Int = 0,
         title: String,
         comment: String? = nil,
         isChecked: Bool = false,
@@ -233,10 +235,18 @@ final class QuickTask {
         createdAt: Date = Date()
     ) {
         self.id = id
+        self.sortOrderValue = sortOrder
         self.title = title
         self.comment = comment
         self.isChecked = isChecked
         self.isImportant = isImportant
         self.createdAt = createdAt
+    }
+}
+
+extension QuickTask {
+    var sortOrder: Int {
+        get { sortOrderValue ?? 0 }
+        set { sortOrderValue = newValue }
     }
 }
