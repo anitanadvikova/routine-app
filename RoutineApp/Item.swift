@@ -8,6 +8,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import UIKit
 
 enum TaskScheduleType: String, Codable, CaseIterable {
     case weekly
@@ -128,21 +129,41 @@ extension TaskMarkerColor {
     }
 
     var pastelBackgroundColor: Color {
+        Color(uiColor: UIColor { traitCollection in
+            let colorComponents = traitCollection.userInterfaceStyle == .dark
+                ? darkBackgroundComponents
+                : lightBackgroundComponents
+
+            return UIColor(
+                red: colorComponents.red,
+                green: colorComponents.green,
+                blue: colorComponents.blue,
+                alpha: 1
+            )
+        })
+    }
+
+    private var lightBackgroundComponents: (red: CGFloat, green: CGFloat, blue: CGFloat) {
         switch self {
-        case .white:
-            return Color.white
-        case .red:
-            return Color(red: 0.98, green: 0.87, blue: 0.87)
-        case .orange:
-            return Color(red: 0.99, green: 0.91, blue: 0.82)
-        case .yellow:
-            return Color(red: 0.99, green: 0.96, blue: 0.82)
-        case .green:
-            return Color(red: 0.87, green: 0.95, blue: 0.88)
-        case .blue:
-            return Color(red: 0.86, green: 0.91, blue: 0.98)
-        case .pink:
-            return Color(red: 0.97, green: 0.87, blue: 0.93)
+        case .white: return (1.00, 1.00, 1.00)
+        case .red: return (0.98, 0.87, 0.87)
+        case .orange: return (0.99, 0.91, 0.82)
+        case .yellow: return (0.99, 0.96, 0.82)
+        case .green: return (0.87, 0.95, 0.88)
+        case .blue: return (0.86, 0.91, 0.98)
+        case .pink: return (0.97, 0.87, 0.93)
+        }
+    }
+
+    private var darkBackgroundComponents: (red: CGFloat, green: CGFloat, blue: CGFloat) {
+        switch self {
+        case .white: return (0.18, 0.18, 0.20)
+        case .red: return (0.36, 0.15, 0.15)
+        case .orange: return (0.36, 0.22, 0.11)
+        case .yellow: return (0.34, 0.29, 0.10)
+        case .green: return (0.13, 0.29, 0.16)
+        case .blue: return (0.13, 0.22, 0.36)
+        case .pink: return (0.34, 0.15, 0.26)
         }
     }
 }
