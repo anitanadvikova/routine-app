@@ -17,6 +17,7 @@ struct EditTasksView: View {
     @State private var newTaskTitle = ""
     @State private var newTaskComment = ""
     @State private var newTaskIsImportant = false
+    @State private var sortedTasks: [QuickTask] = []
     @State private var errorMessage: String?
 
     var body: some View {
@@ -27,11 +28,11 @@ struct EditTasksView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if quickTasks.isEmpty {
+                if sortedTasks.isEmpty {
                     Text("Пока нет задач")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(quickTasks, id: \.id) { task in
+                    ForEach(sortedTasks, id: \.id) { task in
                         let comment = normalizedComment(task.comment)
                         HStack(spacing: 12) {
                             Image(systemName: task.isChecked ? "checkmark.circle.fill" : "circle")
@@ -72,14 +73,23 @@ struct EditTasksView: View {
                             }
                         }
                     }
+                    .onMove(perform: moveTasks)
                 }
             }
             .navigationTitle("Неделя")
             .safeAreaInset(edge: .top) {
                 Color.clear.frame(height: 8)
             }
+            .onAppear {
+                refreshSortedTasks()
+                normalizeSortOrderIfNeeded()
+            }
+            .onChange(of: quickTasks.count) { _, _ in
+                refreshSortedTasks()
+            }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    EditButton()
                     Button {
                         newTaskTitle = ""
                         newTaskComment = ""
@@ -144,6 +154,7 @@ struct EditTasksView: View {
                 editingTask.isImportant = newTaskIsImportant
             } else {
                 let task = QuickTask(
+                    sortOrder: nextSortOrder(),
                     title: trimmedTitle,
                     comment: normalizedComment(newTaskComment),
                     isChecked: false,
@@ -152,6 +163,7 @@ struct EditTasksView: View {
                 modelContext.insert(task)
             }
             try modelContext.save()
+            refreshSortedTasks()
             isCreateTaskSheetPresented = false
             editingTask = nil
         } catch {
@@ -171,7 +183,9 @@ struct EditTasksView: View {
     private func deleteTask(_ task: QuickTask) {
         do {
             modelContext.delete(task)
+            resequenceTasks(sortedTasks.filter { $0.id != task.id })
             try modelContext.save()
+            refreshSortedTasks()
         } catch {
             errorMessage = "Не удалось удалить задачу: \(error.localizedDescription)"
         }
@@ -195,6 +209,55 @@ struct EditTasksView: View {
         newTaskComment = task.comment ?? ""
         newTaskIsImportant = task.isImportant
         isCreateTaskSheetPresented = true
+    }
+
+    private func moveTasks(from offsets: IndexSet, to destination: Int) {
+        var reorderedTasks = sortedTasks
+        reorderedTasks.move(fromOffsets: offsets, toOffset: destination)
+
+        do {
+            resequenceTasks(reorderedTasks)
+            try modelContext.save()
+            refreshSortedTasks()
+        } catch {
+            errorMessage = "Не удалось сохранить порядок: \(error.localizedDescription)"
+        }
+    }
+
+    private func nextSortOrder() -> Int {
+        (quickTasks.map(\.sortOrder).max() ?? -1) + 1
+    }
+
+    private func normalizeSortOrderIfNeeded() {
+        let currentTasks = sortedTasks
+        let needsNormalization = currentTasks.enumerated().contains { index, task in
+            task.sortOrder != index
+        }
+
+        guard needsNormalization else { return }
+
+        do {
+            resequenceTasks(currentTasks)
+            try modelContext.save()
+            refreshSortedTasks()
+        } catch {
+            errorMessage = "Не удалось обновить порядок: \(error.localizedDescription)"
+        }
+    }
+
+    private func resequenceTasks(_ tasks: [QuickTask]) {
+        for (index, task) in tasks.enumerated() {
+            task.sortOrder = index
+        }
+    }
+
+    private func refreshSortedTasks() {
+        sortedTasks = quickTasks.sorted { lhs, rhs in
+            if lhs.sortOrder == rhs.sortOrder {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.sortOrder < rhs.sortOrder
+        }
     }
 
     private func normalizedComment(_ value: String?) -> String? {
