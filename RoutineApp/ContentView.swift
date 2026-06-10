@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
     @SceneStorage("selectedTab") private var selectedTabRawValue = AppTab.today.rawValue
-    @SceneStorage("todaySelectedDate") private var todaySelectedDateTimestamp = Date().timeIntervalSinceReferenceDate
+    @SceneStorage("todaySelectedDate") private var todaySelectedDateTimestamp = Self.todayStartOfDay.timeIntervalSinceReferenceDate
 
     private var selectedTab: AppTab {
         get { AppTab(rawValue: selectedTabRawValue) ?? .today }
@@ -18,7 +18,7 @@ struct ContentView: View {
 
     private var todaySelectedDate: Binding<Date> {
         Binding(
-            get: { Date(timeIntervalSinceReferenceDate: todaySelectedDateTimestamp) },
+            get: { Calendar.current.startOfDay(for: Date(timeIntervalSinceReferenceDate: todaySelectedDateTimestamp)) },
             set: { todaySelectedDateTimestamp = Calendar.current.startOfDay(for: $0).timeIntervalSinceReferenceDate }
         )
     }
@@ -46,6 +46,9 @@ struct ContentView: View {
                 }
                 .tag(AppTab.backlog)
         }
+        .onAppear {
+            todaySelectedDateTimestamp = Self.todayStartOfDay.timeIntervalSinceReferenceDate
+        }
     }
 
     @ViewBuilder
@@ -62,6 +65,12 @@ struct ContentView: View {
         } else {
             Color.clear
         }
+    }
+}
+
+private extension ContentView {
+    static var todayStartOfDay: Date {
+        Calendar.current.startOfDay(for: Date())
     }
 }
 
