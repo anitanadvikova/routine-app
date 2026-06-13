@@ -19,6 +19,7 @@ struct EditTasksView: View {
     @State private var newTaskIsImportant = false
     @State private var sortedTasks: [QuickTask] = []
     @State private var errorMessage: String?
+    @State private var editMode: EditMode = .inactive
 
     var body: some View {
         NavigationStack {
@@ -32,51 +33,16 @@ struct EditTasksView: View {
                     Text("Пока нет задач")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(sortedTasks, id: \.id) { task in
-                        let comment = normalizedComment(task.comment)
-                        HStack(spacing: 12) {
-                            Image(systemName: task.isChecked ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(task.isChecked ? .green : .secondary)
-                                .frame(width: 22, height: 22)
-                            if task.isImportant {
-                                Circle()
-                                    .fill(.orange)
-                                    .frame(width: 8, height: 8)
-                            }
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(task.title)
-                                    .strikethrough(task.isChecked, color: .secondary)
-                                    .foregroundStyle(task.isChecked ? .secondary : .primary)
-                                if let comment {
-                                    Text(comment)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .frame(minHeight: 38, alignment: comment == nil ? .center : .top)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            toggleChecked(task)
-                        }
-                        .onLongPressGesture {
-                            startEditing(task)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                deleteTask(task)
-                            } label: {
-                                Label("Удалить", systemImage: "trash")
-                            }
-                        }
+                    if isEditing {
+                        taskRows
+                            .onMove(perform: moveTasks)
+                    } else {
+                        taskRows
                     }
-                    .onMove(perform: moveTasks)
                 }
             }
             .navigationTitle("Неделя")
+            .environment(\.editMode, $editMode)
             .safeAreaInset(edge: .top) {
                 Color.clear.frame(height: 8)
             }
@@ -89,7 +55,7 @@ struct EditTasksView: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    EditButton()
+                    SyncedEditButton(editMode: $editMode)
                     Button {
                         newTaskTitle = ""
                         newTaskComment = ""
@@ -141,6 +107,78 @@ struct EditTasksView: View {
                 Text(errorMessage ?? "Неизвестная ошибка")
             }
         }
+    }
+
+    private var taskRows: some DynamicViewContent {
+        ForEach(sortedTasks, id: \.id) { task in
+            taskRow(for: task)
+        }
+    }
+
+    @ViewBuilder
+    private func taskRow(for task: QuickTask) -> some View {
+        if isEditing {
+            Button {
+                startEditing(task)
+            } label: {
+                taskRowContent(for: task)
+            }
+            .buttonStyle(.plain)
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    deleteTask(task)
+                } label: {
+                    Label("Удалить", systemImage: "trash")
+                }
+            }
+        } else {
+            taskRowContent(for: task)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    toggleChecked(task)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        deleteTask(task)
+                    } label: {
+                        Label("Удалить", systemImage: "trash")
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func taskRowContent(for task: QuickTask) -> some View {
+        let comment = normalizedComment(task.comment)
+
+        HStack(spacing: 12) {
+            Image(systemName: task.isChecked ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(task.isChecked ? .green : .secondary)
+                .frame(width: 22, height: 22)
+            if task.isImportant {
+                Circle()
+                    .fill(.orange)
+                    .frame(width: 8, height: 8)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(task.title)
+                    .strikethrough(task.isChecked, color: .secondary)
+                    .foregroundStyle(task.isChecked ? .secondary : .primary)
+                if let comment {
+                    Text(comment)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 38, alignment: comment == nil ? .center : .top)
+        }
+    }
+
+    private var isEditing: Bool {
+        editMode.isEditing
     }
 
     private func saveTask() {
@@ -271,3 +309,12 @@ struct EditTasksView: View {
 #Preview {
     EditTasksView()
 }
+private struct SyncedEditButton: View {
+    @Binding var editMode: EditMode
+
+    var body: some View {
+        EditButton()
+            .environment(\.editMode, $editMode)
+    }
+}
+
